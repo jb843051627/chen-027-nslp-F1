@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS t_nslp_point (
   point_no varchar(64) DEFAULT NULL COMMENT '点位码',
   zone_id int DEFAULT NULL COMMENT '挂在哪一个区册名下',
   zone_no varchar(64) DEFAULT NULL COMMENT '区册代号（冗余自区册）',
+  rule_code varchar(64) DEFAULT NULL COMMENT '线代号（归层时钉入；贴不上线时清成空白）',
+  eff_start datetime DEFAULT NULL COMMENT '起用那一一日（归层时随线钉入，追当年照的是哪条线）',
   src_kind varchar(128) DEFAULT NULL COMMENT '来路（自动站／移动监测车／人工核查三条来路）',
   need_num int DEFAULT NULL COMMENT '核定应测次数',
   got_num int DEFAULT NULL COMMENT '已核验达标的次数',
@@ -153,4 +155,9 @@ CREATE TABLE IF NOT EXISTS t_nslp_zone_book (
 INSERT IGNORE INTO t_nslp_zone_book (id, zone_no, zone_name, zone_kind, road_name, status, del_flag, create_by, create_time)
 VALUES (0, 'QN00', '澜原省江水市云桥区临江片区（甲层住宅类，在册）', '甲层', '澜原省—江水市—云桥区—临江片区', 0, 0, 'seed', NOW()),
        (1, 'QN01', '南津区北岸片区·并走撤出的旧区册（已撤出）', '乙层', '澜原省—江水市—南津区—北岸片区', 1, 0, 'seed', NOW());
+
+-- 存量库补列（归层钉线两格：线代号 + 起用那一一日；新库由上方 CREATE 直接带出）：
+-- ALTER TABLE t_nslp_point
+--   ADD COLUMN rule_code varchar(64) DEFAULT NULL COMMENT '线代号（归层时钉入；贴不上线时清成空白）' AFTER zone_no,
+--   ADD COLUMN eff_start datetime DEFAULT NULL COMMENT '起用那一一日（归层时随线钉入，追当年照的是哪条线）' AFTER rule_code;
 

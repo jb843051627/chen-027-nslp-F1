@@ -46,6 +46,17 @@ public class TNslpPoint implements Serializable {
     @ApiModelProperty(value = "区册代号（冗余自区册）")
     private String zoneNo;
 
+    /** 线代号（归层时钉入；贴不上线时清成空白） */
+    @TableField("rule_code")
+    @ApiModelProperty(value = "线代号（归层时钉入；贴不上线时清成空白）")
+    private String ruleCode;
+
+    /** 起用那一一日（归层时随线钉入，追当年照的是哪条线） */
+    @TableField("eff_start")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @ApiModelProperty(value = "起用那一一日（归层时随线钉入）")
+    private Date effStart;
+
     /** 来路（自动站／移动监测车／人工核查三条来路） */
     @TableField("src_kind")
     @ApiModelProperty(value = "来路（自动站／移动监测车／人工核查三条来路）")
@@ -138,6 +149,22 @@ public class TNslpPoint implements Serializable {
 
     public void setZoneNo(String zoneNo) {
         this.zoneNo = zoneNo;
+    }
+
+    public String getRuleCode() {
+        return ruleCode;
+    }
+
+    public void setRuleCode(String ruleCode) {
+        this.ruleCode = ruleCode;
+    }
+
+    public Date getEffStart() {
+        return effStart;
+    }
+
+    public void setEffStart(Date effStart) {
+        this.effStart = effStart;
     }
 
     public String getSrcKind() {

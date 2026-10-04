@@ -1,13 +1,15 @@
 package com.fc.v2.service.impl;
 
 import java.math.BigDecimal;
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fc.v2.common.nslp.LimitLineCore;
 import com.fc.v2.mapper.auto.TNslpLimitLineMapper;
 import com.fc.v2.model.auto.TNslpLimitLine;
 import com.fc.v2.service.ITNslpLimitLineService;
@@ -15,75 +17,47 @@ import com.fc.v2.service.ITNslpLimitLineService;
 /**
  * 功能区昼夜间限值线 Service业务层处理（rule-eval 形状）
  *
+ * <p>贴层、在位、撞线定序全部走 {@link LimitLineCore} 这一份算法；
+ * 时段判定在内存里做（对照表是配置量级），不把 java.util.Date 直接绑给 JDBC，
+ * 免得 serverTimezone 与本机时区不对称把边界判定带偏。</p>
+ *
  * @author fuce
  * @date 2026-09-14
  */
 @Service
 public class TNslpLimitLineServiceImpl implements ITNslpLimitLineService {
 
-    /** 优先级降序；并列按 ruleCode 降序（确定性） */
-    private static final Comparator<TNslpLimitLine> PRIORITY_THEN_CODE_DESC = new Comparator<TNslpLimitLine>() {
-        @Override
-        public int compare(TNslpLimitLine a, TNslpLimitLine b) {
-            int pa = a.getPriority() == null ? 0 : a.getPriority();
-            int pb = b.getPriority() == null ? 0 : b.getPriority();
-            if (pa != pb) {
-                return pb - pa;
-            }
-            String ca = a.getRuleCode() == null ? "" : a.getRuleCode();
-            String cb = b.getRuleCode() == null ? "" : b.getRuleCode();
-            return cb.compareTo(ca);
-        }
-    };
-
     @javax.annotation.Resource
     private TNslpLimitLineMapper nslpLimitLineMapper;
 
-    /**
-     * 时段比较统一走**墙钟字符串**（yyyy-MM-dd HH:mm:ss）+ 字符串绑定：
-     * JDBC 的 serverTimezone 与本机时区不对称，直接把 java.util.Date 作参数会整体偏移，
-     * 使边界判定在"切换当日"这类用例上随机错档（实测踩到）。
-     */
-    private static String ts(Date d) {
-        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(d);
-    }
-
     @Override
     public TNslpLimitLine selectTNslpLimitLineById(Long id) {
+        // 已撤下的线在库里仍是一行，照主键点得到
         return this.nslpLimitLineMapper.selectById(id);
-    }
-
-    @Override
-    public List<TNslpLimitLine> listAvailable(Date at) {
-        if (at == null) {
-            return new java.util.ArrayList<TNslpLimitLine>();
-        }
-        return this.nslpLimitLineMapper.selectList(new QueryWrapper<TNslpLimitLine>().eq("del_flag", 0));
     }
 
     @Override
     public int evaluate(String ruleCode, BigDecimal input, Date at) {
         if (ruleCode == null || ruleCode.trim().isEmpty() || input == null || at == null) {
-            return 0;
+            return LimitLineCore.LAYER_NONE;
         }
-        TNslpLimitLine rule = findRule(ruleCode, at);
-        return levelOf(rule, input);
+        return LimitLineCore.layerOf(selectEffective(ruleCode, at), input);
     }
 
     @Override
     public int evaluateTop(BigDecimal input, Date at) {
         if (input == null || at == null) {
-            return 0;
+            return LimitLineCore.LAYER_NONE;
         }
-        if (input.compareTo(BigDecimal.ZERO) < 0
-                || input.compareTo(new BigDecimal("100")) > 0) {
-            return 0;
+        return LimitLineCore.layerOf(selectTop(at), input);
+    }
+
+    @Override
+    public List<TNslpLimitLine> listAvailable(Date at) {
+        if (at == null) {
+            return new ArrayList<TNslpLimitLine>();
         }
-        List<TNslpLimitLine> avail = listAvailable(at);
-        if (avail.isEmpty()) {
-            return 0;
-        }
-        return levelOf(avail.get(0), input);
+        return LimitLineCore.available(loadAll(), at);
     }
 
     @Override
@@ -92,59 +66,68 @@ public class TNslpLimitLineServiceImpl implements ITNslpLimitLineService {
             return false;
         }
         TNslpLimitLine r = this.nslpLimitLineMapper.selectById(id);
-        return r != null;
+        return LimitLineCore.inEffect(r, at) && LimitLineCore.configValid(r);
     }
 
     @Override
     public int countAvailable(Date at) {
-        if (at == null) {
-            return 0;
-        }
-        return this.nslpLimitLineMapper
-                .selectList(new QueryWrapper<TNslpLimitLine>().eq("del_flag", 0)).size();
+        return listAvailable(at).size();
     }
 
-    private TNslpLimitLine findRule(String ruleCode, Date at) {
-        List<TNslpLimitLine> hit = this.nslpLimitLineMapper.selectList(new QueryWrapper<TNslpLimitLine>()
+    @Override
+    public TNslpLimitLine selectEffective(String ruleCode, Date at) {
+        if (ruleCode == null || ruleCode.trim().isEmpty() || at == null) {
+            return null;
+        }
+        List<TNslpLimitLine> rows = this.nslpLimitLineMapper.selectList(new QueryWrapper<TNslpLimitLine>()
                 .eq("del_flag", 0).eq("rule_code", ruleCode));
-        TNslpLimitLine newest = null;
-        for (TNslpLimitLine r : hit) {
-            if (newest == null || r.getEffEnd() == null) {
-                newest = r;
-            } else if (newest.getEffEnd() != null && r.getEffEnd().after(newest.getEffEnd())) {
-                newest = r;
+        // 库层按代号收窄一遍，内存再按代号核一遍，定序只看本代号的版本
+        List<TNslpLimitLine> mine = new ArrayList<TNslpLimitLine>();
+        for (TNslpLimitLine r : rows) {
+            if (ruleCode.equals(r.getRuleCode())) {
+                mine.add(r);
             }
         }
-        return newest;
+        // 用 at 那一刻立着的那一版，不拿此刻最新的一版去套旧账
+        return LimitLineCore.pickWinner(mine, at);
     }
 
-    /** 阈值解析：档案为主、明细覆盖；两者皆缺返回 null（调用方按不可用处理），精度统一 2 位 */
-    private BigDecimal resolveLimit(TNslpLimitLine r, int tier) {
-        if (tier == 1) {
-            return r.getTh1Max();
+    @Override
+    public TNslpLimitLine selectTop(Date at) {
+        if (at == null) {
+            return null;
         }
-        if (tier == 2) {
-            return r.getTh2Max();
-        }
-        return r.getTh3Max();
+        return LimitLineCore.pickWinner(loadAll(), at);
     }
 
-    /** 档案级默认阈值（明细未维护时的回退来源） */
-    private BigDecimal defaultThreshold(TNslpLimitLine r, int tier) {
-        return r.getTh1Max();
+    @Override
+    public List<String> checkLineConfig(TNslpLimitLine line) {
+        return LimitLineCore.checkConfig(line);
     }
 
-    /** 分档：等于上限取高一档 */
-    private int levelOf(TNslpLimitLine rule, BigDecimal input) {
-        if (rule.getTh1Max() != null && input.compareTo(rule.getTh1Max()) <= 0) {
-            return 1;
+    @Override
+    public List<TNslpLimitLine> listAvailableInQuarter(int year, int quarter) {
+        List<TNslpLimitLine> out = new ArrayList<TNslpLimitLine>();
+        if (quarter < 1 || quarter > 4) {
+            return out;
         }
-        if (rule.getTh2Max() != null && input.compareTo(rule.getTh2Max()) <= 0) {
-            return 2;
+        Calendar cal = Calendar.getInstance();
+        cal.clear();
+        cal.set(year, (quarter - 1) * 3, 1);
+        Date quarterStart = cal.getTime();
+        cal.add(Calendar.MONTH, 3);
+        Date quarterEnd = cal.getTime();
+        for (TNslpLimitLine r : loadAll()) {
+            if (LimitLineCore.windowOverlaps(r, quarterStart, quarterEnd) && LimitLineCore.configValid(r)) {
+                out.add(r);
+            }
         }
-        if (rule.getTh3Max() != null && input.compareTo(rule.getTh3Max()) <= 0) {
-            return 3;
-        }
-        return 4;
+        out.sort(LimitLineCore.WINNER_FIRST);
+        return out;
+    }
+
+    /** 未删除的全量行；在位、体检、定序都在 LimitLineCore 里过 */
+    private List<TNslpLimitLine> loadAll() {
+        return this.nslpLimitLineMapper.selectList(new QueryWrapper<TNslpLimitLine>().eq("del_flag", 0));
     }
 }
