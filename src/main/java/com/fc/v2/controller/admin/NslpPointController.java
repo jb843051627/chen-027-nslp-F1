@@ -6,7 +6,10 @@ import com.fc.v2.common.domain.AjaxResult;
 import com.fc.v2.common.domain.ResultTable;
 import com.fc.v2.common.log.Log;
 import com.fc.v2.model.auto.TNslpPoint;
+import com.fc.v2.model.custom.LevelQuery;
+import com.fc.v2.model.custom.LimitLineVerdict;
 import com.fc.v2.service.ITNslpPointService;
+import com.fc.v2.util.DateUtils;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
@@ -14,6 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.ModelMap;
 import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 声环境监测点位底册 Controller
@@ -76,5 +82,33 @@ public class NslpPointController extends BaseController {
     @ResponseBody
     public AjaxResult remove(String ids) {
         return toAjax(nslpPointService.deleteTNslpPointByIds(ids));
+    }
+
+    @Log(title = "点位归层并钉线", action = "pinLevel")
+    @ApiOperation(value = "点位归层", notes = "走限值线唯一算法；归层钉线代号与起用日，不归层两格清空白")
+    @GetMapping("/pinLevel")
+    @RequiresPermissions("nslp:nslpPoint:list")
+    @ResponseBody
+    public AjaxResult pinLevel(Long id, BigDecimal input, String at, String objKind) {
+        LimitLineVerdict v = nslpPointService.pinPointLevel(id, input, DateUtils.parseDate(at), objKind);
+        return AjaxResult.successData(200, v);
+    }
+
+    @Log(title = "点位批量归层（大屏同次计算）", action = "pinLevelBatch")
+    @ApiOperation(value = "批量归层", notes = "大屏昼段夜段折线/点值/后端回算同一次计算并逐行钉线")
+    @PostMapping("/pinLevelBatch")
+    @RequiresPermissions("nslp:nslpPoint:list")
+    @ResponseBody
+    public AjaxResult pinLevelBatch(@RequestBody List<LevelQuery> queries) {
+        return AjaxResult.successData(200, nslpPointService.pinPointLevelBatch(queries));
+    }
+
+    @Log(title = "看板挂码孤儿点位", action = "pinnedOrphans")
+    @ApiOperation(value = "挂码孤儿", notes = "挂着线代号、回到 at 那一刻却寻不到在位版本的点位一条条列出")
+    @GetMapping("/pinnedOrphans")
+    @RequiresPermissions("nslp:nslpPoint:list")
+    @ResponseBody
+    public AjaxResult pinnedOrphans(String at) {
+        return AjaxResult.successData(200, nslpPointService.listPinnedOrphans(DateUtils.parseDate(at)));
     }
 }

@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS t_nslp_point (
   lack_num int DEFAULT NULL COMMENT '还差几回（轧出来，不手填）',
   content varchar(255) DEFAULT NULL COMMENT '随件交来的点位题名与依附声源',
   status int DEFAULT NULL COMMENT '册面情形 0新入册 1已核齐 2缺项',
+  pinned_rule_code varchar(64) DEFAULT NULL COMMENT '归层钉住的限值线代号（不归层清空白，追得出当年照哪条线）',
+  pinned_eff_start datetime DEFAULT NULL COMMENT '归层钉住的起用那一一日（不归层清空白）',
   del_flag int DEFAULT '0' COMMENT '删除标记 0正常 1删除',
   create_by varchar(64) DEFAULT NULL COMMENT '创建者',
   create_time datetime DEFAULT NULL COMMENT '创建时间',

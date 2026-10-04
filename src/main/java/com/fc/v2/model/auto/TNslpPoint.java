@@ -76,6 +76,17 @@ public class TNslpPoint implements Serializable {
     @ApiModelProperty(value = "册面情形 0新入册 1已核齐 2缺项")
     private Integer status;
 
+    /** 归层时钉住的线代号；不归层清成空白（日后追得出当年照的是哪条线） */
+    @TableField("pinned_rule_code")
+    @ApiModelProperty(value = "归层钉住的线代号，不归层为空白")
+    private String pinnedRuleCode;
+
+    /** 归层时钉住的起用那一一日；不归层清成空白 */
+    @TableField("pinned_eff_start")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    @ApiModelProperty(value = "归层钉住的起用那一一日，不归层为空白")
+    private Date pinnedEffStart;
+
     /** 删除标记 0正常 1删除 */
     @TableField("del_flag")
     @ApiModelProperty(value = "删除标记 0正常 1删除")
@@ -186,6 +197,22 @@ public class TNslpPoint implements Serializable {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public String getPinnedRuleCode() {
+        return pinnedRuleCode;
+    }
+
+    public void setPinnedRuleCode(String pinnedRuleCode) {
+        this.pinnedRuleCode = pinnedRuleCode;
+    }
+
+    public Date getPinnedEffStart() {
+        return pinnedEffStart;
+    }
+
+    public void setPinnedEffStart(Date pinnedEffStart) {
+        this.pinnedEffStart = pinnedEffStart;
     }
 
     public Integer getDelFlag() {
